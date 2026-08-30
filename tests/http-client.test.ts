@@ -160,6 +160,48 @@ describe('MlsGridHttpClient URL controls', () => {
   });
 });
 
+describe('MlsGridHttpClient throttling', () => {
+  it('serializes concurrent callers instead of letting them burst', async () => {
+    const offsets: number[] = [];
+    const start = Date.now();
+    const fetchFn = vi.fn(async () => {
+      offsets.push(Date.now() - start);
+      return jsonResponse({ value: [] });
+    }) as unknown as typeof fetch;
+    // Real sleeps, but short: the point is that callers queue rather than
+    // all computing their delay from the same lastRequestAt and firing together.
+    const c = new MlsGridHttpClient({ baseUrl: BASE, token: TOKEN, fetchFn, minRequestIntervalMs: 40 });
+    await Promise.all([
+      c.getPage(`${BASE}/Property`),
+      c.getPage(`${BASE}/Property`),
+      c.getPage(`${BASE}/Property`)
+    ]);
+    expect(offsets).toHaveLength(3);
+    expect(offsets[1]! - offsets[0]!).toBeGreaterThanOrEqual(35);
+    expect(offsets[2]! - offsets[1]!).toBeGreaterThanOrEqual(35);
+  });
+
+  it('releases the next caller even when a request fails', async () => {
+    let calls = 0;
+    const fetchFn = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('ECONNRESET');
+      return jsonResponse({ value: [] });
+    }) as unknown as typeof fetch;
+    const c = new MlsGridHttpClient({
+      baseUrl: BASE,
+      token: TOKEN,
+      fetchFn,
+      minRequestIntervalMs: 0,
+      maxRetries: 0,
+      sleepFn: async () => undefined
+    });
+    await expect(c.getPage(`${BASE}/Property`)).rejects.toMatchObject({ code: 'UPSTREAM_UNAVAILABLE' });
+    // A stuck admission queue would hang this call rather than resolving it.
+    await expect(c.getPage(`${BASE}/Property`)).resolves.toMatchObject({ value: [] });
+  });
+});
+
 describe('MlsGridHttpClient logging', () => {
   it('never writes the bearer token to the log', async () => {
     const lines: string[] = [];

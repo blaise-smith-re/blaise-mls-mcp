@@ -46,6 +46,8 @@ export class MlsGridHttpClient {
   private readonly sleepFn: (ms: number) => Promise<void>;
   private readonly logger: Logger;
   private lastRequestAt = 0;
+  /** Serializes throttle admission so concurrent callers queue instead of bursting. */
+  private admission: Promise<void> = Promise.resolve();
 
   constructor(opts: MlsGridHttpOptions) {
     if (!opts.token) throw new MlsError('CONFIG', 'MLS Grid client requires a token');
@@ -180,11 +182,31 @@ export class MlsGridHttpClient {
     };
   }
 
+  /**
+   * Space out requests by at least minIntervalMs.
+   *
+   * Admission is serialized through a promise chain: concurrent callers (the
+   * market snapshot runs three query chains at once) each wait for the previous
+   * caller to claim its slot before computing their own delay. Without this,
+   * simultaneous callers all read the same lastRequestAt, compute the same
+   * delay, and then fire together — collapsing the throttle exactly when the
+   * request volume is highest.
+   */
   private async throttle(): Promise<void> {
-    const now = Date.now();
-    const wait = this.lastRequestAt + this.minIntervalMs - now;
-    if (wait > 0) await this.sleepFn(wait);
-    this.lastRequestAt = Date.now();
+    const previous = this.admission;
+    let admit!: () => void;
+    this.admission = new Promise<void>((resolve) => {
+      admit = resolve;
+    });
+    try {
+      await previous;
+      const wait = this.lastRequestAt + this.minIntervalMs - Date.now();
+      if (wait > 0) await this.sleepFn(wait);
+      this.lastRequestAt = Date.now();
+    } finally {
+      // Always release the next caller, even if this one failed to claim a slot.
+      admit();
+    }
   }
 
   private async backoff(attempt: number, retryAfterHeader: string | null): Promise<void> {

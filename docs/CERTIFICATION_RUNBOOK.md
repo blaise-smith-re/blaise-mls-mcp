@@ -28,6 +28,11 @@ Before any checkpoint, retrieve live `$metadata` and reconcile it against
   accordingly. This is the single highest-value configuration change: it moves predicates from
   in-process to server-side and sharply reduces retrieved volume.
 - Confirm the correct `OriginatingSystemName` value for NorthstarMLS.
+- **Confirm the `StandardStatus` wire spelling.** Filters send the normalized enum
+  (`ActiveUnderContract`); some feeds store the spaced form (`Active Under Contract`). Reading
+  tolerates both, but a filter is an exact string match — a mismatch returns **zero rows with no
+  error**, which reads as "no listings" rather than as a bug. Verify against the Lookup resource and
+  confirm a status-filtered query returns a non-zero count before trusting checkpoints 3–5.
 - Confirm whether `$count` is reliable, whether concessions are exposed, and whether private remarks
   are exposed *and licensed*.
 

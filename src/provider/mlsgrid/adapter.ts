@@ -182,6 +182,12 @@ export class MlsGridAdapter implements MlsProvider {
     const servedKeys = new Set<keyof ListingQuery>();
 
     if (query.statuses && query.statuses.length > 0 && builder.canServe('StandardStatus')) {
+      // UNVERIFIED WIRE FORMAT: these are our normalized enum spellings
+      // (e.g. "ActiveUnderContract"). Some RESO feeds store the spaced form
+      // ("Active Under Contract"). Reading tolerates both, but a filter is an
+      // exact string match — if the live feed uses the spaced form, this
+      // predicate silently returns zero rows. Certification step 0 must confirm
+      // the live spelling against $metadata/Lookup before this lane is trusted.
       builder.whereIn({ field: 'StandardStatus', values: [...query.statuses] }, 'statuses');
       servedKeys.add('statuses');
     }

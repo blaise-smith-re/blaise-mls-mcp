@@ -39,10 +39,11 @@ export function num(v: unknown): number | null {
   return null;
 }
 
+/** A fractional value where an integer is expected is treated as unusable, not rounded. */
 export function int(v: unknown): number | null {
   const n = num(v);
   if (n === null) return null;
-  return Number.isInteger(n) ? n : Math.trunc(n) === n ? n : null;
+  return Number.isInteger(n) ? n : null;
 }
 
 /** Normalize a source timestamp to ISO 8601 UTC. Unparseable values map to null. */

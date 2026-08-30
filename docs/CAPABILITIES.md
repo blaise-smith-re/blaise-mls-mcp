@@ -78,6 +78,7 @@ token is held.
 | 5,000 records/request; 1,000 with `$expand` | Live paging behavior |
 | One `OriginatingSystemName` per request; correct value for NorthstarMLS | Live behavior |
 | Which fields are server-side searchable | `$metadata` + live rejections |
+| **`StandardStatus` wire spelling.** Filters send the normalized enum (`ActiveUnderContract`); some feeds store the spaced form (`Active Under Contract`). A filter is an exact string match, so a mismatch returns **zero rows silently** | `$metadata` / Lookup resource, before trusting any status-filtered count |
 | OR-clause limit (conservatively capped at 10) | Live rejection threshold |
 | Rate limits (conservatively throttled to ~1.7 req/s) | Live 429 behavior |
 | Whether `$count` is reliable | Live response |

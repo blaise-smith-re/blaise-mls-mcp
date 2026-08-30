@@ -26,6 +26,31 @@ raises `UNSUPPORTED_CAPABILITY` rather than issuing a query it cannot support. W
 
 ² The fixture dataset carries no media; the code path exists and is exercised by mapping tests.
 
+## AI-use gating (MLS Grid AI Use Addendum)
+
+Live tools are **unavailable by default**. Availability requires all three of: the live provider
+configured, the AI-access kill switch on, and the tool individually allowlisted.
+
+| Condition | Effect |
+|---|---|
+| `MLS_AI_ACCESS_ENABLED` unset/false | No MLS tool is registered; no MLS Grid request is made (§3.c) |
+| No `MLS_AI_AUTHORIZED_USE_BASES` | Same — Authorized AI Use is undeclared (§1.e) |
+| Tool absent from `MLS_AI_AUTHORIZED_TOOLS` | That tool is not registered and is refused at the service layer (§2) |
+| `permitted_search_response_use` without `idx`/`vow` | **Startup fails** — §1.i ties that use to IDX or VOW licenses |
+| `back_office` given as an AI-use basis | **Startup fails** — Back Office is a license class, not an AI-use basis |
+
+**Back Office access alone is not blanket AI permission.** Under a Back Office license the only
+declarable basis is Permitted Marketing Use, which §1.g limits to marketing *Blaise's own listings or
+business*. Whether comparables and market statistics over other participants' listings fall inside
+that limit is an open licensing question — see the Open Questions in
+[`AI_USE_ADDENDUM_REVIEW.md`](AI_USE_ADDENDUM_REVIEW.md).
+
+Structurally prohibited regardless of configuration (§1.d, §3): embeddings, vector indexes,
+retrieval indices, knowledge graphs, fine-tuning, training datasets, persistent retrieval stores,
+any representation persisting beyond a single session, caching beyond an individual query, storage in
+Claude project knowledge or memory, and rendering data unattributable to the Participant, MLS or
+MLS GRID. `get_capabilities` returns the live posture, including why a tool is withheld.
+
 ## Standing limitations
 
 **No listing history.** The licensed feed exposes current-state records, not a history resource.
@@ -60,6 +85,12 @@ explicitly.
 **Comparables are not valuation.** Ranked evidence with stated tolerances and per-candidate
 reasoning. No adjusted value, no recommended list price.
 
+**Every MLS-derived result carries attribution.** Participant, originating MLS, distributor,
+retrieval time, and handling instructions (§3.d). Preserve it wherever figures are presented.
+
+**Nothing is retained.** MLS content exists only for the lifetime of the request that fetched it
+(§3.a). There is no cache to warm and no store to query; identical repeated calls re-fetch.
+
 **Fixture data is synthetic.** 151 generated records. Never real market data; statistics computed
 from it carry an explicit `FIXTURE PROVIDER` limitation.
 
@@ -89,6 +120,8 @@ Resolution path: [`CERTIFICATION_RUNBOOK.md`](CERTIFICATION_RUNBOOK.md).
 
 ## External gates
 
-Licensing, subscription eligibility, pricing, and the MLS Grid AI Use Addendum are **outside this
-repository** and unresolved. See [`EXTERNAL_GATES.md`](EXTERNAL_GATES.md). Nothing in this codebase
-or its documentation constitutes a license permission.
+Licensing, subscription eligibility and pricing are **outside this repository** and unresolved. The
+AI Use Addendum has been reviewed and is now technically enforced
+([`AI_USE_ADDENDUM_REVIEW.md`](AI_USE_ADDENDUM_REVIEW.md)), but its acceptance and the scope
+decisions it raises remain Blaise's. See [`EXTERNAL_GATES.md`](EXTERNAL_GATES.md). Nothing in this
+codebase or its documentation constitutes a license permission.

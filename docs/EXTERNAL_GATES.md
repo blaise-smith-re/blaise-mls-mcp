@@ -20,17 +20,38 @@ what the executed agreement permits.
 
 ## Gate 2 — MLS Grid AI Use Addendum
 
-**Status: unresolved and material.**
+**Status: REVIEWED 2026-08-30. Technically enforced. Acceptance and scope decisions still open.**
 
-MLS Grid maintains an AI Use Addendum whose current production terms have **not** been reviewed or
-accepted. This gate is specifically about *this* server: an MCP that feeds MLS data to an AI
-assistant is squarely within whatever that addendum governs.
+The Addendum has now been supplied and reviewed clause by clause against this implementation — see
+[`AI_USE_ADDENDUM_REVIEW.md`](AI_USE_ADDENDUM_REVIEW.md). Its restrictions are now technically
+enforceable in code, ahead of any live credential.
 
-Its terms may constrain what this server is permitted to do — retention, derived statistics, what may
-be surfaced to a model, redistribution. Those constraints could require code changes before live use.
-Read it before, not after, wiring the token.
+What the Addendum actually permits:
 
-*Requires: Blaise. Review and acceptance of binding vendor terms.*
+- MLS Grid Data may be used with AI Tools **solely** for (i) **Permitted Search/Response Use** and
+  (ii) **Permitted Marketing Use**. "All other use of MLS GRID Data with an AI Tool is prohibited
+  unless an MLS provides written approval to use that MLS's data with an AI Tool."
+- **§1.i ties Permitted Search/Response Use to IDX or VOW licenses** — "for IDX Uses or VOW Uses
+  (i.e., with IDX or VOW licenses)". A **Back Office license does not carry it**.
+- **§1.h/§1.g limit Permitted Marketing Use** to Marketing Content created "solely for the purpose of
+  marketing Participant's own listings or business", excluding copyrighted content Participant does
+  not own.
+
+**Back Office data access is therefore not blanket AI permission.** The code enforces this: Back
+Office is a license class, never an AI-use basis, and declaring Permitted Search/Response Use without
+an IDX or VOW class fails startup.
+
+Still open, and Blaise's decision alone:
+
+- Which license class is actually executed (this decides whether Search/Response Use exists at all).
+- Whether internal buyer advisory / CMA work falls within Permitted Marketing Use, given §1.g's
+  "Participant's own listings or business" limit. See the Open Questions in the review document.
+- Whether this deployment is Vendor, Participant, or both (§3 makes them jointly and severally liable).
+- §4.a end-user agreement obligations, if output ever reaches clients.
+- **§6:** material updates take effect 15 days after notice, and continued use is acceptance. Any
+  notice triggers a re-read and a re-run of the review.
+
+*Requires: Blaise. Acceptance of binding vendor terms, and the scope decisions above.*
 
 ## Gate 3 — Production API token
 

@@ -30,7 +30,9 @@ describe('/health', () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
     expect(res.body.provider).toBe('fixture');
+    expect(res.body.provider_is_live).toBe(false);
     expect(res.body.live_mls_access).toBe(false);
+    expect(res.body.ai_use.ai_access_enabled).toBe(false);
     expect(res.body.build_status).toMatch(/LIVE ACTIVATION PENDING/);
     expect(res.body.mcp_auth_required).toBe(true);
     expect(res.body.timezone).toBe('America/Chicago');
@@ -125,6 +127,32 @@ describe('/mcp transport surface', () => {
     for (const tool of toolList) {
       expect(tool.annotations?.readOnlyHint, `${tool.name} must be read-only`).toBe(true);
     }
+  });
+});
+
+describe('/health under a live provider with the kill switch off', () => {
+  it('reports a live provider but withheld access, not live access', async () => {
+    // secret-scan:allow — fake token; the live provider requires one to construct.
+    const live = app({ MLS_PROVIDER: 'mlsgrid', MLSGRID_TOKEN: 'fake-token-for-test-000' });
+    const res = await request(live).get('/health');
+    expect(res.status).toBe(200);
+    expect(res.body.provider_is_live).toBe(true);
+    // The distinction that matters: configured live, but not permitted to retrieve.
+    expect(res.body.live_mls_access).toBe(false);
+    expect(res.body.ai_use.live_access_permitted).toBe(false);
+    expect(res.body.ai_use.authorized_tools).toEqual([]);
+  });
+
+  it('exposes only get_capabilities over the protocol while gated', async () => {
+    // secret-scan:allow — fake token; the live provider requires one to construct.
+    const agent = request.agent(app({ MLS_PROVIDER: 'mlsgrid', MLSGRID_TOKEN: 'fake-token-for-test-000' }));
+    await agent.post('/mcp').set('accept', 'application/json, text/event-stream').send(initBody);
+    const res = await agent
+      .post('/mcp')
+      .set('accept', 'application/json, text/event-stream')
+      .send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+    const payload = res.text.includes('event:') ? JSON.parse(res.text.split('data: ')[1]!.trim()) : res.body;
+    expect(payload.result.tools.map((t: { name: string }) => t.name)).toEqual(['get_capabilities']);
   });
 });
 

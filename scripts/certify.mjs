@@ -6,14 +6,28 @@
  * writes a Markdown report with the MCP-side values filled in and the Matrix
  * columns left BLANK for a human to complete.
  *
+ * RETENTION CONTROL (AI Use Addendum §3.a)
+ * ----------------------------------------
+ * MLS Grid Data may not be cached, stored, archived or retained beyond the
+ * duration reasonably necessary to fulfill an individual user query. Writing a
+ * report file that contains listing field values is retention.
+ *
+ * So by default this report contains NO MLS content: only counts, completeness
+ * accounting, capability flags and pass/fail structure — enough to prove the
+ * mechanics ran. Reconciling field values against Matrix genuinely requires
+ * those values, so `--include-mls-values` opts in; the resulting file is
+ * MLS Grid Data at rest and must be destroyed once reconciliation is complete
+ * (§3.a, and §4.b on revocation).
+ *
  * This script cannot certify anything by itself. It gathers evidence; a person
  * reconciles that evidence against the certified Northstar/Matrix browser lane.
  * A successful API response is not certification.
  *
  * Usage:
  *   npm run build
- *   node scripts/certify.mjs --mls-number NST6400001 --address "..." --city Woodbury \
- *                            --subject NST6400009 [--out report.md]
+ *   node scripts/certify.mjs --mls-number NST6400001 --subject NST6400009 \
+ *                            [--address "..."] [--city Woodbury] \
+ *                            [--include-mls-values] [--out report.md]
  */
 import { writeFileSync } from 'node:fs';
 import { loadConfig } from '../dist/config.js';
@@ -25,29 +39,38 @@ function arg(name, fallback = null) {
   const i = process.argv.indexOf(`--${name}`);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
+const flag = (name) => process.argv.includes(`--${name}`);
 
 const params = {
   mlsNumber: arg('mls-number'),
   address: arg('address'),
   city: arg('city', 'Woodbury'),
   subject: arg('subject'),
+  includeMlsValues: flag('include-mls-values'),
   out: arg('out', 'certification-report.md')
 };
 
 if (!params.mlsNumber || !params.subject) {
-  console.error('Required: --mls-number <id> --subject <id>. Optional: --address, --city, --out');
+  console.error('Required: --mls-number <id> --subject <id>');
+  console.error('Optional: --address, --city, --include-mls-values, --out');
   process.exit(2);
 }
 
+const REDACTED = '[REDACTED — MLS content not retained (Addendum §3.a). Re-run with --include-mls-values to reconcile.]';
+
+/** Wrap MLS-derived content so it is omitted unless explicitly opted in. */
+const mls = (value) => (params.includeMlsValues ? value : REDACTED);
+
 const config = loadConfig();
 const service = createService(config);
+const isLive = config.provider === 'mlsgrid';
+const policy = service.aiUsePolicy;
 const results = [];
 
 async function step(id, name, fn) {
   process.stderr.write(`[${id}] ${name}\n`);
   try {
-    const evidence = await fn();
-    results.push({ id, name, outcome: 'collected', evidence });
+    results.push({ id, name, outcome: 'collected', evidence: await fn() });
   } catch (err) {
     results.push({
       id,
@@ -66,25 +89,21 @@ await step(1, 'Exact MLS number lookup', async () => {
   const r = await service.getListing({ listing_id: params.mlsNumber });
   return {
     found: r.found,
-    listing_key: r.listing?.listing_key ?? null,
-    listing_id: r.listing?.listing_id ?? null,
-    standard_status: r.listing?.standard_status ?? null,
-    list_price: r.listing?.list_price ?? null,
-    close_price: r.listing?.close_price ?? null,
-    living_area_sqft: r.listing?.living_area_sqft ?? null,
-    bedrooms_total: r.listing?.bedrooms_total ?? null,
-    bathrooms_total: r.listing?.bathrooms_total ?? null,
-    year_built: r.listing?.year_built ?? null,
-    days_on_market: r.listing?.days_on_market ?? null,
-    close_date: r.listing?.close_date ?? null,
-    address: r.listing?.address.unparsed ?? null
+    matches: r.lookup.matches,
+    attribution_present: Boolean(r.attribution),
+    fields_present: r.listing
+      ? Object.entries(r.listing)
+          .filter(([, v]) => v !== null)
+          .map(([k]) => k)
+      : [],
+    record: mls(r.listing)
   };
 });
 
 await step(2, 'Exact address lookup', async () => {
   if (!params.address) return { skipped: 'no --address supplied' };
   const r = await service.getListing({ address: params.address });
-  return { found: r.found, matches: r.lookup.matches, listing_id: r.listing?.listing_id ?? null, notes: r.notes };
+  return { found: r.found, matches: r.lookup.matches, notes: r.notes, record: mls(r.listing) };
 });
 
 const boundedSearch = (statuses, extra = {}) => async () => {
@@ -93,10 +112,12 @@ const boundedSearch = (statuses, extra = {}) => async () => {
     returned_count: r._completeness.returned_count,
     completeness_status: r._completeness.completeness_status,
     capped: r._completeness.capped,
+    cap_reason: r._completeness.cap_reason,
     pages_fetched: r._completeness.pages_fetched,
+    total_known: r._completeness.total_known,
     server_side_filters: r._completeness.filters_applied.server_side,
     client_side_filters: r._completeness.filters_applied.client_side,
-    sample_listing_ids: r.listings.slice(0, 10).map((l) => l.listing_id)
+    listing_ids: mls(r.listings.map((l) => l.listing_id))
   };
 };
 
@@ -111,44 +132,60 @@ await step(
 await step(6, 'Subject comparable candidate dataset', async () => {
   const r = await service.getComparables({ subject_listing_id: params.subject });
   return {
-    subject: r.comparables.subject,
     tolerances: r.comparables.tolerances,
     candidates_evaluated: r.comparables.candidates_evaluated,
-    included: r.comparables.included.map((c) => ({
-      listing_id: c.listing_id,
-      close_price: c.close_price,
-      close_date: c.close_date,
-      living_area_sqft: c.living_area_sqft,
-      similarity_distance: c.similarity_distance
-    })),
+    included_count: r.comparables.included.length,
     rejected_count: r.comparables.rejected.length,
-    rejection_reasons_sample: r.comparables.rejected.slice(0, 5).map((c) => ({
-      listing_id: c.listing_id,
-      reasons: c.rejection_reasons
-    })),
     retrieval_query: r.retrieval.query,
-    retrieval_completeness: r.retrieval._completeness.completeness_status
+    retrieval_completeness: r.retrieval._completeness.completeness_status,
+    rejection_reason_categories: [
+      ...new Set(r.comparables.rejected.flatMap((c) => c.rejection_reasons.map((s) => s.split(':')[0])))
+    ],
+    subject: mls(r.comparables.subject),
+    included: mls(
+      r.comparables.included.map((c) => ({
+        listing_id: c.listing_id,
+        close_price: c.close_price,
+        close_date: c.close_date,
+        living_area_sqft: c.living_area_sqft,
+        similarity_distance: c.similarity_distance
+      }))
+    )
   };
 });
 
 await step(7, `Market statistics (${params.city})`, async () => {
   const r = await service.marketStats({
-    query: { cities: [params.city], statuses: ['Closed'], closed_from: windowStart, closed_to: windowEnd, limit: 1000 },
+    query: {
+      cities: [params.city],
+      statuses: ['Closed'],
+      closed_from: windowStart,
+      closed_to: windowEnd,
+      limit: 1000
+    },
     include_prior_period: true
   });
   const closed = r.cohorts.find((c) => c.cohort === 'closed');
   return {
     query_definition: r.query_definition,
     record_counts: r.record_counts,
-    closed_metrics: closed
+    completeness_status: r._completeness.completeness_status,
+    prior_period_window: r.prior_period?.window ?? null,
+    limitations: r.limitations,
+    metric_sample_sizes: closed
       ? Object.fromEntries(
-          Object.entries(closed.metrics).map(([k, v]) => [k, { value: v.value, sample_size: v.sample_size, excluded: v.excluded_missing_input }])
+          Object.entries(closed.metrics).map(([k, v]) => [
+            k,
+            { sample_size: v.sample_size, excluded: v.excluded_missing_input }
+          ])
         )
       : null,
-    price_bands: closed?.price_bands ?? null,
-    prior_period_window: r.prior_period?.window ?? null,
-    completeness_status: r._completeness.completeness_status,
-    limitations: r.limitations
+    // Aggregate metrics are Derivative Works of MLS Grid Data (§1.f), so they
+    // are withheld by default alongside record-level content.
+    metric_values: mls(
+      closed ? Object.fromEntries(Object.entries(closed.metrics).map(([k, v]) => [k, v.value])) : null
+    ),
+    price_bands: mls(closed?.price_bands ?? null)
   };
 });
 
@@ -173,31 +210,48 @@ await step(8, 'Pagination and completeness accounting', async () => {
   };
 });
 
-await step(9, 'Field semantics', async () => {
+await step(9, 'Field semantics and capability register', async () => {
   const r = await service.getListing({ listing_id: params.mlsNumber });
-  const l = r.listing;
   const history = await service.getListingHistory(params.mlsNumber);
   return {
     capabilities: service.capabilities(),
-    null_fields: l ? Object.entries(l).filter(([, v]) => v === null).map(([k]) => k) : [],
+    null_fields: r.listing
+      ? Object.entries(r.listing)
+          .filter(([, v]) => v === null)
+          .map(([k]) => k)
+      : [],
     history_capability: history.capability,
-    provenance: l?.source ?? null
+    attribution: r.attribution
   };
 });
 
-await step(10, 'Zero write surfaces', async () => {
+await step(10, 'Zero write surfaces and AI-use gating', async () => {
   const tools = buildTools(service);
-  const writeVerb = /^(create|add|update|edit|modify|delete|remove|set|post|put|patch|submit|send|write|upload|change|cancel|close|assign)_/;
+  const writeVerb =
+    /^(create|add|update|edit|modify|delete|remove|set|post|put|patch|submit|send|write|upload|change|cancel|close|assign)_/;
   return {
-    tool_count: tools.length,
-    tool_names: tools.map((t) => t.name),
+    registered_tools: tools.map((t) => t.name),
     write_shaped_tools: tools.map((t) => t.name).filter((n) => writeVerb.test(n)),
-    zero_write_surfaces: tools.every((t) => !writeVerb.test(t.name))
+    zero_write_surfaces: tools.every((t) => !writeVerb.test(t.name)),
+    ai_use_policy: policy.describe()
   };
 });
 
-const caps = service.capabilities();
-const isLive = config.provider === 'mlsgrid';
+const retentionBanner = params.includeMlsValues
+  ? `## ⚠ THIS FILE CONTAINS MLS GRID DATA AT REST
+
+It was generated with \`--include-mls-values\`. Under AI Use Addendum §3.a, MLS Grid Data may not be
+retained beyond the duration reasonably necessary to fulfil an individual query. **Destroy this file
+as soon as the Matrix reconciliation below is complete.** Do not commit it, sync it to cloud storage,
+attach it to a ticket, or place it in Claude project knowledge.
+`
+  : `## MLS content withheld
+
+This report contains no MLS field values: only counts, completeness accounting and capability flags,
+so it can be retained safely under Addendum §3.a. Checkpoints that require comparing actual field
+values to Matrix need \`--include-mls-values\`; that output is MLS Grid Data at rest and must be
+destroyed after reconciliation.
+`;
 
 const report = `# MLS MCP live certification report
 
@@ -205,25 +259,26 @@ const report = `# MLS MCP live certification report
 **Server version:** ${SERVER_VERSION}
 **Build status:** ${BUILD_STATUS}
 **Provider:** \`${config.provider}\`${isLive ? '' : ' — **FIXTURE DATA. This run cannot certify anything.**'}
-**Originating system:** \`${caps.originating_system}\`
+**AI access enabled:** ${policy.aiAccessEnabled}
+**Authorized use bases:** ${policy.authorizedUseBases.join(', ') || '(none declared)'}
+**License classes:** ${policy.licenseClasses.join(', ') || '(none declared)'}
+**MLS values included:** ${params.includeMlsValues}
 
-> This report contains the MCP side only. Every Matrix column below is intentionally BLANK and must
-> be filled in by a human from the certified Northstar/Matrix browser lane. A checkpoint is PASS only
-> when the MCP value and the Matrix value are reconciled and match, or the difference is explained
-> and accepted. **A successful API response is not certification.**
-
+${retentionBanner}
 ${
   isLive
     ? ''
     : '## ⚠ Fixture run\n\nThis run used synthetic fixture data. It exercises the certification path end to end but has NO evidentiary value for production certification. Re-run with `MLS_PROVIDER=mlsgrid` and a licensed token.\n'
 }
+> Every Matrix column below is intentionally BLANK and must be filled in by a human from the
+> certified Northstar/Matrix browser lane. A checkpoint is PASS only when the MCP value and the
+> Matrix value are reconciled and match, or the difference is explained and accepted.
+
 ## Checkpoint results
 
 | # | Checkpoint | Collected | Matrix value | Reconciled | Notes |
 |---|---|---|---|---|---|
-${results
-  .map((r) => `| ${r.id} | ${r.name} | ${r.outcome === 'error' ? '**ERROR**' : 'yes'} | | ☐ | |`)
-  .join('\n')}
+${results.map((r) => `| ${r.id} | ${r.name} | ${r.outcome === 'error' ? '**ERROR**' : 'yes'} | | ☐ | |`).join('\n')}
 
 ## Evidence
 
@@ -240,8 +295,6 @@ ${JSON.stringify(r.evidence, null, 2)}
 
 ## Sign-off
 
-A checkpoint passes only when its Matrix counterpart is recorded and reconciled above.
-
 - [ ] 1. Exact MLS number returns the same record, status and material fields as Matrix
 - [ ] 2. Exact address resolves to the same record (or the limitation is documented)
 - [ ] 3. Active count matches Matrix for identical criteria
@@ -251,7 +304,8 @@ A checkpoint passes only when its Matrix counterpart is recorded and reconciled 
 - [ ] 7. Market statistics inputs reconcile with Matrix (counts and underlying values)
 - [ ] 8. Pagination is complete, deduplicated, and truncation is correctly disclosed
 - [ ] 9. Field semantics confirmed against \`$metadata\` and Matrix (area, DOM/CDOM, concessions)
-- [ ] 10. Zero writes — confirmed by tool inventory and by no MLS-side change during this run
+- [ ] 10. Zero writes, and AI-use gating matches the executed Addendum
+- [ ] This report file destroyed (if generated with \`--include-mls-values\`)
 
 **Certification decision:** ☐ PASS ☐ PARTIAL ☐ HOLD
 
@@ -264,6 +318,10 @@ console.log(`\nWrote ${params.out}`);
 console.log(`Checkpoints collected: ${results.length - errors.length}/${results.length}`);
 if (errors.length > 0) {
   console.log(`Errors: ${errors.map((e) => `${e.id} (${e.evidence.error})`).join(', ')}`);
+}
+if (params.includeMlsValues) {
+  console.log('\n*** This report contains MLS Grid Data at rest (Addendum §3.a).');
+  console.log('*** Destroy it as soon as Matrix reconciliation is complete. Do not commit it.');
 }
 console.log(
   isLive

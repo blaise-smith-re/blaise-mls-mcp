@@ -149,7 +149,12 @@ export class MlsGridHttpClient {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${this.token}`,
-          Accept: 'application/json'
+          Accept: 'application/json',
+          // Addendum §3.a: MLS Grid Data may not be cached, stored, archived or
+          // retained beyond the individual query. Node's fetch keeps no HTTP
+          // cache of its own, so this instructs any intermediary; holding no
+          // cache in this process is enforced by tests/no-persistence.test.ts.
+          'Cache-Control': 'no-store'
         },
         signal: controller.signal
       });

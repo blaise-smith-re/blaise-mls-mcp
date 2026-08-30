@@ -1,3 +1,4 @@
+import { AiUsePolicy } from './compliance/ai-use.js';
 import type { AppConfig } from './config.js';
 import { MlsError } from './errors.js';
 import type { Logger } from './logging.js';
@@ -39,13 +40,34 @@ export function createProvider(config: AppConfig, logger: Logger = nullLogger): 
   });
 }
 
+export function createAiUsePolicy(config: AppConfig): AiUsePolicy {
+  return new AiUsePolicy({
+    provider: config.provider,
+    aiAccessEnabled: config.aiUse.accessEnabled,
+    authorizedUseBases: config.aiUse.authorizedUseBases,
+    licenseClasses: config.aiUse.licenseClasses,
+    writtenApprovalReference: config.aiUse.writtenApprovalReference,
+    authorizedTools: config.aiUse.authorizedTools
+  });
+}
+
 export function createService(config: AppConfig, logger: Logger = nullLogger): MlsService {
   const provider = createProvider(config, logger);
+  const policy = createAiUsePolicy(config);
+  if (config.provider === 'mlsgrid' && !policy.liveAccessPermitted) {
+    logger.warn('live MLS AI access is withheld', {
+      detail:
+        'MLS Grid provider is configured but the AI-use kill switch or Authorized AI Use basis is not set. ' +
+        'All MLS tools are unavailable and no MLS Grid request will be made.'
+    });
+  }
   return new MlsService({
     provider,
     defaultTimezone: config.defaultTimezone,
     maxRecordsPerQuery: config.maxRecordsPerQuery,
     maxPages: config.provider === 'mlsgrid' ? config.mlsgrid.maxPagesPerQuery : 10,
-    providerRequestCap: config.provider === 'mlsgrid' ? PROVIDER_REQUEST_CAP : null
+    providerRequestCap: config.provider === 'mlsgrid' ? PROVIDER_REQUEST_CAP : null,
+    aiUsePolicy: policy,
+    participantName: config.aiUse.participantName
   });
 }

@@ -85,7 +85,22 @@ const COMPLETENESS_NOTE =
   'completeness_status, filters applied server-side vs in-process). A completeness_status other than "complete" ' +
   'means the result describes only the retrieved subset — never report such a count as a market total.';
 
+/**
+ * Build the tool inventory.
+ *
+ * `get_capabilities` is always present: a client must be able to discover WHY
+ * the MLS tools are unavailable. Every tool that can reach MLS Grid Data is
+ * filtered out unless the AI-use policy authorizes it, so an unauthorized tool
+ * is not merely blocked at call time — it never appears in tools/list.
+ */
 export function buildTools(service: MlsService): ToolDefinition[] {
+  const policy = service.aiUsePolicy;
+  return buildAllTools(service).filter(
+    (tool) => tool.name === 'get_capabilities' || policy.evaluateTool(tool.name).allowed
+  );
+}
+
+function buildAllTools(service: MlsService): ToolDefinition[] {
   return [
     {
       name: 'get_capabilities',

@@ -1,3 +1,6 @@
+import { AiUsePolicy } from '../compliance/ai-use.js';
+import type { Attribution } from '../compliance/attribution.js';
+import { buildAttribution } from '../compliance/attribution.js';
 import { MlsError } from '../errors.js';
 import type { CollectionMeta } from '../models/meta.js';
 import type {
@@ -34,6 +37,9 @@ export interface ServiceOptions {
   maxRecordsPerQuery: number;
   maxPages: number;
   providerRequestCap: number | null;
+  /** AI Use Addendum policy. Defaults to a fully-closed live policy when omitted. */
+  aiUsePolicy?: AiUsePolicy;
+  participantName?: string | undefined;
   now?: () => Date;
 }
 
@@ -42,12 +48,14 @@ export interface ListingResult {
   found: boolean;
   lookup: { by: 'listing_id_or_key' | 'address'; value: string; matches: number };
   notes: string[];
+  attribution: Attribution;
 }
 
 export interface SearchResult {
   listings: NormalizedListing[];
   query: ListingQuery;
   _completeness: CollectionMeta;
+  attribution: Attribution;
 }
 
 export interface StatsResult {
@@ -73,6 +81,7 @@ export interface StatsResult {
   as_of: string;
   timezone: string;
   _completeness: CollectionMeta;
+  attribution: Attribution;
 }
 
 export class MlsService {
@@ -81,6 +90,8 @@ export class MlsService {
   private readonly maxRecords: number;
   private readonly maxPages: number;
   private readonly providerRequestCap: number | null;
+  private readonly policy: AiUsePolicy;
+  private readonly participantName: string | undefined;
   private readonly now: () => Date;
 
   constructor(opts: ServiceOptions) {
@@ -89,14 +100,60 @@ export class MlsService {
     this.maxRecords = opts.maxRecordsPerQuery;
     this.maxPages = opts.maxPages;
     this.providerRequestCap = opts.providerRequestCap;
+    // Fail closed: an omitted policy is treated as a fully-closed live policy,
+    // never as permission. A caller must construct one deliberately.
+    this.policy =
+      opts.aiUsePolicy ??
+      new AiUsePolicy({
+        provider: opts.provider.name === 'fixture' ? 'fixture' : 'mlsgrid',
+        aiAccessEnabled: false,
+        authorizedUseBases: [],
+        licenseClasses: [],
+        writtenApprovalReference: undefined,
+        authorizedTools: []
+      });
+    this.participantName = opts.participantName;
     this.now = opts.now ?? (() => new Date());
   }
 
-  capabilities(): ProviderCapabilities & { provider: string; originating_system: string } {
+  get aiUsePolicy(): AiUsePolicy {
+    return this.policy;
+  }
+
+  /**
+   * Enforcement point for the Addendum's access controls (§3.c). Every method
+   * that can reach MLS Grid Data calls this first, so the gate cannot be
+   * bypassed by talking to the service directly instead of through MCP.
+   */
+  private assertToolPermitted(toolName: string): void {
+    const decision = this.policy.evaluateTool(toolName);
+    if (!decision.allowed) {
+      throw new MlsError('UNSUPPORTED_CAPABILITY', decision.reason ?? 'Not authorized', {
+        details: { ai_use_denial: decision.code, tool: toolName }
+      });
+    }
+  }
+
+  /** §3.d attribution, attached to every MLS-derived result. */
+  private attribution(): Attribution {
+    return buildAttribution({
+      policy: this.policy,
+      originatingSystem: this.provider.originatingSystem,
+      retrievedAt: this.now().toISOString(),
+      participant: this.participantName ?? null
+    });
+  }
+
+  capabilities(): ProviderCapabilities & {
+    provider: string;
+    originating_system: string;
+    ai_use: Record<string, unknown>;
+  } {
     return {
       provider: this.provider.name,
       originating_system: this.provider.originatingSystem,
-      ...this.provider.capabilities()
+      ...this.provider.capabilities(),
+      ai_use: this.policy.describe()
     };
   }
 
@@ -115,6 +172,21 @@ export class MlsService {
     address?: string;
     include_media?: boolean;
   }): Promise<ListingResult> {
+    this.assertToolPermitted('get_listing');
+    const result = await this.resolveListing(args);
+    return { ...result, attribution: this.attribution() };
+  }
+
+  /**
+   * Unguarded lookup used to compose other tools. Callers must have already
+   * passed their own `assertToolPermitted` check: authorizing get_comparables
+   * must not additionally require authorizing get_listing.
+   */
+  private async resolveListing(args: {
+    listing_id?: string;
+    address?: string;
+    include_media?: boolean;
+  }): Promise<Omit<ListingResult, 'attribution'>> {
     const notes: string[] = [];
     if (!args.listing_id && !args.address) {
       throw new MlsError('VALIDATION', 'Provide either listing_id (MLS number or listing key) or address.');
@@ -169,12 +241,14 @@ export class MlsService {
   }
 
   async searchListings(query: ListingQuery): Promise<SearchResult> {
+    this.assertToolPermitted('search_listings');
     const bounded: ListingQuery = { ...query, limit: Math.min(query.limit ?? this.maxRecords, this.maxRecords) };
     const result = await this.provider.searchListings(bounded);
     return {
       listings: result.records,
       query: bounded,
-      _completeness: buildCollectionMeta(result, this.metaContext())
+      _completeness: buildCollectionMeta(result, this.metaContext()),
+      attribution: this.attribution()
     };
   }
 
@@ -184,8 +258,9 @@ export class MlsService {
    * or status timeline from a single current-state record.
    */
   async getListingHistory(listingId: string): Promise<Record<string, unknown>> {
+    this.assertToolPermitted('get_listing_history');
     const caps = this.provider.capabilities();
-    const lookup = await this.getListing({ listing_id: listingId });
+    const lookup = await this.resolveListing({ listing_id: listingId });
 
     if (caps.listing_history_events === 'supported') {
       throw new MlsError(
@@ -226,7 +301,8 @@ export class MlsService {
         ...lookup.notes,
         'A difference between original_list_price and list_price indicates at least one price change occurred, but ' +
           'the number, size, and dates of those changes are not exposed by these fields.'
-      ]
+      ],
+      attribution: this.attribution()
     };
   }
 
@@ -237,8 +313,13 @@ export class MlsService {
     postal_codes?: string[];
     tolerances?: Partial<CompTolerances>;
     candidate_limit?: number;
-  }): Promise<{ comparables: CompResult; retrieval: { query: ListingQuery; _completeness: CollectionMeta } }> {
-    const subjectLookup = await this.getListing({
+  }): Promise<{
+    comparables: CompResult;
+    retrieval: { query: ListingQuery; _completeness: CollectionMeta };
+    attribution: Attribution;
+  }> {
+    this.assertToolPermitted('get_comparables');
+    const subjectLookup = await this.resolveListing({
       ...(args.subject_listing_id ? { listing_id: args.subject_listing_id } : {}),
       ...(args.subject_address ? { address: args.subject_address } : {})
     });
@@ -283,7 +364,8 @@ export class MlsService {
 
     return {
       comparables,
-      retrieval: { query, _completeness: buildCollectionMeta(retrieval, this.metaContext()) }
+      retrieval: { query, _completeness: buildCollectionMeta(retrieval, this.metaContext()) },
+      attribution: this.attribution()
     };
   }
 
@@ -292,6 +374,7 @@ export class MlsService {
     price_band_size?: number;
     include_prior_period?: boolean;
   }): Promise<StatsResult> {
+    this.assertToolPermitted('market_stats');
     const bandSize = args.price_band_size ?? 100_000;
     const bounded: ListingQuery = {
       ...args.query,
@@ -392,7 +475,8 @@ export class MlsService {
       limitations,
       as_of: this.now().toISOString(),
       timezone: this.defaultTimezone,
-      _completeness: meta
+      _completeness: meta,
+      attribution: this.attribution()
     };
   }
 
@@ -410,6 +494,7 @@ export class MlsService {
     closed_window_days?: number;
     limit_per_query?: number;
   }): Promise<Record<string, unknown>> {
+    this.assertToolPermitted('get_market_snapshot');
     if (!args.cities?.length && !args.postal_codes?.length) {
       throw new MlsError('VALIDATION', 'A snapshot requires an explicit geography: cities or postal_codes.');
     }
@@ -481,24 +566,36 @@ export class MlsService {
       methodology: METHODOLOGY,
       as_of: asOf.toISOString(),
       timezone: this.defaultTimezone,
+      attribution: this.attribution(),
       notes
     };
   }
 
-  async getMember(memberMlsId: string): Promise<{ member: NormalizedMember | null; found: boolean }> {
+  async getMember(
+    memberMlsId: string
+  ): Promise<{ member: NormalizedMember | null; found: boolean; attribution: Attribution }> {
+    this.assertToolPermitted('lookup_member_or_office');
     const member = await this.provider.getMember(memberMlsId);
-    return { member, found: member !== null };
+    return { member, found: member !== null, attribution: this.attribution() };
   }
 
-  async getOffice(officeMlsId: string): Promise<{ office: NormalizedOffice | null; found: boolean }> {
+  async getOffice(
+    officeMlsId: string
+  ): Promise<{ office: NormalizedOffice | null; found: boolean; attribution: Attribution }> {
+    this.assertToolPermitted('lookup_member_or_office');
     const office = await this.provider.getOffice(officeMlsId);
-    return { office, found: office !== null };
+    return { office, found: office !== null, attribution: this.attribution() };
   }
 
   async getOpenHouses(
     query: OpenHouseQuery
-  ): Promise<{ open_houses: NormalizedOpenHouse[]; _completeness: CollectionMeta }> {
+  ): Promise<{ open_houses: NormalizedOpenHouse[]; _completeness: CollectionMeta; attribution: Attribution }> {
+    this.assertToolPermitted('get_open_houses');
     const result = await this.provider.getOpenHouses(query);
-    return { open_houses: result.records, _completeness: buildCollectionMeta(result, this.metaContext()) };
+    return {
+      open_houses: result.records,
+      _completeness: buildCollectionMeta(result, this.metaContext()),
+      attribution: this.attribution()
+    };
   }
 }

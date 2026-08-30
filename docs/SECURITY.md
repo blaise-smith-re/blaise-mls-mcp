@@ -73,6 +73,42 @@ naming and the annotations.
 **Stateless transport.** A fresh MCP server and transport per request means no cross-request session
 state and no session-fixation surface.
 
+## AI Use Addendum enforcement
+
+The MLS Grid AI Use Addendum is enforced technically, not just documented. See
+[`AI_USE_ADDENDUM_REVIEW.md`](AI_USE_ADDENDUM_REVIEW.md) for the clause-by-clause mapping.
+
+**Kill switch (§3.c).** `MLS_AI_ACCESS_ENABLED` defaults **OFF** for the live provider. While off,
+MLS tools do not appear in `tools/list` at all and the service refuses before any HTTP request is
+constructed — the Addendum's requirement that access can be restricted, suspended and terminated at
+any time is a single environment variable.
+
+**Fail closed.** An `MlsService` built without an explicit policy is treated as a fully-closed live
+policy. Permission is never inferred from the absence of a prohibition.
+
+**Per-tool authorization (§2).** `MLS_AI_AUTHORIZED_TOOLS` gates each tool individually. The server
+deliberately does **not** decide which tool falls within a permitted use — that is a licensing
+judgment, so an empty allowlist authorizes nothing.
+
+**No retention (§3.a, §1.d).** Nothing is cached, stored, archived or retained beyond the request
+that fetched it. `Cache-Control: no-store` goes out on every request; identical repeated queries
+re-fetch. There is no database, no file store, no vector index, no embedding, no retrieval index, no
+knowledge graph, and no training or fine-tuning path anywhere in the codebase. `tests/no-persistence.test.ts`
+proves this structurally: it asserts no runtime module writes to disk, imports a persistence or
+embedding client, declares one as a dependency, or uses browser-side storage — and that no MLS
+records remain reachable on the adapter or service after a request completes.
+
+**Never in assistant-side storage.** MLS content must not be placed in Claude project knowledge,
+memory, or any other assistant-side store. Every MLS-derived result carries that instruction in its
+`attribution.handling` block.
+
+**Attribution (§3.d).** Every MLS-derived result names the Participant, the originating MLS, and
+MLS GRID. Attribution is attached at the service layer, so a new tool cannot ship without it.
+
+**Certification reports.** `scripts/certify.mjs` redacts MLS content by default so its report can be
+retained safely. `--include-mls-values` opts in for Matrix reconciliation and stamps the file with a
+destroy-after-use banner — that file is MLS Grid Data at rest.
+
 ## Data handling posture
 
 Private/agent remarks are mapped only when the licensed feed exposes them *and*

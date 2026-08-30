@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import type { AuthorizedUseBasis, LicenseClass } from './compliance/ai-use.js';
+import { validateAiUseDeclaration } from './compliance/ai-use.js';
 import { MlsError } from './errors.js';
 
 /**
@@ -45,6 +47,15 @@ const envSchema = z.object({
   MLS_DEFAULT_TIMEZONE: z.string().default('America/Chicago'),
   MLS_MAX_RECORDS_PER_QUERY: intFromEnv(2_500, 1, 25_000),
 
+  // --- AI Use Addendum controls (see src/compliance/ai-use.ts) ---
+  // Kill switch (§3.c). Defaults OFF: live MLS AI access must be switched on deliberately.
+  MLS_AI_ACCESS_ENABLED: boolFromEnv,
+  MLS_AI_AUTHORIZED_USE_BASES: z.string().optional(),
+  MLS_AI_LICENSE_CLASSES: z.string().optional(),
+  MLS_AI_WRITTEN_APPROVAL_REFERENCE: z.string().optional(),
+  MLS_AI_AUTHORIZED_TOOLS: z.string().optional(),
+  MLS_PARTICIPANT_NAME: z.string().optional(),
+
   MCP_AUTH_TOKEN: z.string().optional(),
 
   PORT: intFromEnv(3_000, 1, 65_535),
@@ -69,6 +80,14 @@ export interface AppConfig {
   };
   defaultTimezone: string;
   maxRecordsPerQuery: number;
+  aiUse: {
+    accessEnabled: boolean;
+    authorizedUseBases: AuthorizedUseBasis[];
+    licenseClasses: LicenseClass[];
+    writtenApprovalReference: string | undefined;
+    authorizedTools: string[];
+    participantName: string | undefined;
+  };
   mcpAuthToken: string | undefined;
   port: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
@@ -91,6 +110,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  const csv = (v: string | undefined): string[] =>
+    v?.trim() ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
+
+  const declaration = validateAiUseDeclaration(
+    csv(e.MLS_AI_AUTHORIZED_USE_BASES),
+    csv(e.MLS_AI_LICENSE_CLASSES),
+    e.MLS_AI_WRITTEN_APPROVAL_REFERENCE
+  );
+  if (declaration.error) {
+    throw new MlsError('CONFIG', `Invalid AI-use declaration: ${declaration.error}`);
+  }
+
   const serverFilterFields = e.MLSGRID_SERVER_FILTER_FIELDS?.trim()
     ? e.MLSGRID_SERVER_FILTER_FIELDS.split(',').map((f) => f.trim()).filter(Boolean)
     : undefined;
@@ -111,6 +142,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     defaultTimezone: e.MLS_DEFAULT_TIMEZONE,
     maxRecordsPerQuery: e.MLS_MAX_RECORDS_PER_QUERY,
+    aiUse: {
+      accessEnabled: e.MLS_AI_ACCESS_ENABLED,
+      authorizedUseBases: declaration.bases,
+      licenseClasses: declaration.classes,
+      writtenApprovalReference: e.MLS_AI_WRITTEN_APPROVAL_REFERENCE?.trim() || undefined,
+      authorizedTools: csv(e.MLS_AI_AUTHORIZED_TOOLS),
+      participantName: e.MLS_PARTICIPANT_NAME?.trim() || undefined
+    },
     mcpAuthToken: e.MCP_AUTH_TOKEN?.trim() || undefined,
     port: e.PORT,
     logLevel: e.LOG_LEVEL,

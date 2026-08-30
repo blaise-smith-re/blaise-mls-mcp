@@ -71,7 +71,12 @@ export function createHttpApp(opts: HttpAppOptions): Express {
       build_status: BUILD_STATUS,
       provider: config.provider,
       originating_system: service.capabilities().originating_system,
-      live_mls_access: config.provider === 'mlsgrid',
+      // Distinguish "a live provider is configured" from "live MLS data may
+      // actually be retrieved" — with the kill switch off these differ, and
+      // conflating them would misreport the server as having live access.
+      provider_is_live: config.provider === 'mlsgrid',
+      live_mls_access: service.aiUsePolicy.liveAccessPermitted,
+      ai_use: service.aiUsePolicy.describe(),
       mcp_auth_required: config.mcpAuthToken !== undefined,
       timezone: config.defaultTimezone,
       uptime_seconds: Math.round(process.uptime())

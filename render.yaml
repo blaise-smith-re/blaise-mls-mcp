@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: blaise-mls-mcp
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      # Defaults to the offline fixture dataset. Switch to "mlsgrid" only after the
+      # licensing gates and the live certification runbook both pass.
+      - key: MLS_PROVIDER
+        value: fixture
+      - key: MLS_DEFAULT_TIMEZONE
+        value: America/Chicago
+      # Secrets: set in the Render dashboard. Never stored in this repository.
+      - key: MCP_AUTH_TOKEN
+        sync: false
+      - key: MLSGRID_TOKEN
+        sync: false
+      - key: MLSGRID_ORIGINATING_SYSTEM
+        sync: false
+      # Widen only after live $metadata confirms which fields are server-side searchable.
+      - key: MLSGRID_SERVER_FILTER_FIELDS
+        sync: false

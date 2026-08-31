@@ -44,8 +44,8 @@ export function createAiUsePolicy(config: AppConfig): AiUsePolicy {
   return new AiUsePolicy({
     provider: config.provider,
     aiAccessEnabled: config.aiUse.accessEnabled,
-    authorizedUseBases: config.aiUse.authorizedUseBases,
-    licenseClasses: config.aiUse.licenseClasses,
+    dataLicenseUses: config.aiUse.dataLicenseUses,
+    aiAuthorizationBases: config.aiUse.aiAuthorizationBases,
     writtenApprovalReference: config.aiUse.writtenApprovalReference,
     authorizedTools: config.aiUse.authorizedTools
   });
@@ -57,8 +57,16 @@ export function createService(config: AppConfig, logger: Logger = nullLogger): M
   if (config.provider === 'mlsgrid' && !policy.liveAccessPermitted) {
     logger.warn('live MLS AI access is withheld', {
       detail:
-        'MLS Grid provider is configured but the AI-use kill switch or Authorized AI Use basis is not set. ' +
-        'All MLS tools are unavailable and no MLS Grid request will be made.'
+        'MLS Grid provider is configured but the kill switch, data-license use, or AI authorization basis is ' +
+        'not declared. MLS tools remain fully implemented but unavailable, and no MLS Grid request will be made.'
+    });
+  }
+  if (config.aiUse.unknownDataUses.length > 0) {
+    // Accepted deliberately: MLS Grid may approve new data uses at any time and
+    // this server must not need a code change to honour one.
+    logger.info('data-license use not in the known list', {
+      uses: config.aiUse.unknownDataUses,
+      detail: 'Accepted as a future approved use. Confirm it matches an actual Data Interface selection.'
     });
   }
   return new MlsService({

@@ -14,10 +14,11 @@ All must hold before starting. See [`EXTERNAL_GATES.md`](EXTERNAL_GATES.md).
 - [ ] MLS Grid AI Use Addendum **accepted** (reviewed 2026-08-30 and enforced in code — see
       [`AI_USE_ADDENDUM_REVIEW.md`](AI_USE_ADDENDUM_REVIEW.md); acceptance and the scope decisions
       below remain Blaise's) (Gate 2)
-- [ ] Declared license class matches what was executed. **§1.i: Permitted Search/Response Use
-      requires an IDX or VOW license; a Back Office license does not carry it**
-- [ ] Each tool in `MLS_AI_AUTHORIZED_TOOLS` affirmatively determined to fall within a permitted use.
-      **Back Office access alone is not blanket AI permission**
+- [ ] `MLS_DATA_LICENSE_USES` matches the selections actually made via the Data Interface (§2)
+- [ ] `MLS_AI_AUTHORIZATION_BASES` matches the basis the applicable authorization provides.
+      **§1.i: Permitted Search/Response Use requires an IDX or VOW data use**
+- [ ] Each tool the register reports as `authorized` affirmatively determined to fall within a
+      permitted use. **A data-license selection alone is not blanket AI permission**
 - [ ] `MLS_AI_ACCESS_ENABLED=true` set deliberately — the kill switch defaults OFF (§3.c)
 - [ ] Production API token issued and configured **in the deployment environment only** (Gate 3)
 - [ ] Northstar/brokerage authorization confirmed to cover a programmatic API lane (Gate 4)
@@ -65,9 +66,8 @@ MLS_PROVIDER=mlsgrid \
 MLSGRID_TOKEN=<licensed token> \
 MLSGRID_ORIGINATING_SYSTEM=<confirmed value> \
 MLS_AI_ACCESS_ENABLED=true \
-MLS_AI_AUTHORIZED_USE_BASES=<declared basis> \
-MLS_AI_LICENSE_CLASSES=<executed class> \
-MLS_AI_AUTHORIZED_TOOLS=<authorized tools> \
+MLS_DATA_LICENSE_USES=<selections licensed via the Data Interface> \
+MLS_AI_AUTHORIZATION_BASES=<basis the applicable authorization provides> \
 node scripts/certify.mjs \
   --include-mls-values \
   --mls-number <a known MLS number> \
@@ -93,7 +93,7 @@ on its own; a person fills in the Matrix values and decides.
 | 7 | **Woodbury market statistics** | The *inputs* reconcile: record counts and the underlying values. A median matching by luck over a different record set is a failure, not a pass |
 | 8 | **Pagination and completeness** | A wide query returns no duplicate keys and correct page accounting; a deliberately capped query reports `truncated` with a cap reason |
 | 9 | **Field semantics** | Live `$metadata` confirms the mapping, especially `LivingArea` vs above/below-grade area, `DaysOnMarket` vs `CumulativeDaysOnMarket`, and concessions availability |
-| 10 | **Zero writes and AI-use gating** | Tool inventory contains no write surface, nothing changed in Matrix during the run, and the registered tools match exactly what the executed Addendum authorizes |
+| 10 | **Zero writes and AI-use gating** | Tool inventory contains no write surface, nothing changed in Matrix during the run, and the registered tools match exactly the data-use/basis combination declared |
 | 11 | **Kill switch** | Setting `MLS_AI_ACCESS_ENABLED=false` removes every MLS tool and produces no MLS Grid request (§3.c) |
 | 12 | **No retention** | An identical repeated query re-fetches rather than replaying a cached copy; no report file retains MLS content unless deliberately opted in (§3.a) |
 

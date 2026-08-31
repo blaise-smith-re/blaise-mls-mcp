@@ -1,4 +1,6 @@
+import type { ToolRegisterEntry } from '../compliance/ai-use.js';
 import { AiUsePolicy } from '../compliance/ai-use.js';
+import { PRESERVED_BUSINESS_CAPABILITIES } from '../compliance/tool-requirements.js';
 import type { Attribution } from '../compliance/attribution.js';
 import { buildAttribution } from '../compliance/attribution.js';
 import { MlsError } from '../errors.js';
@@ -107,8 +109,8 @@ export class MlsService {
       new AiUsePolicy({
         provider: opts.provider.name === 'fixture' ? 'fixture' : 'mlsgrid',
         aiAccessEnabled: false,
-        authorizedUseBases: [],
-        licenseClasses: [],
+        dataLicenseUses: [],
+        aiAuthorizationBases: [],
         writtenApprovalReference: undefined,
         authorizedTools: []
       });
@@ -148,12 +150,18 @@ export class MlsService {
     provider: string;
     originating_system: string;
     ai_use: Record<string, unknown>;
+    tool_register: ToolRegisterEntry[];
+    preserved_business_capabilities: readonly string[];
   } {
     return {
       provider: this.provider.name,
       originating_system: this.provider.originatingSystem,
       ...this.provider.capabilities(),
-      ai_use: this.policy.describe()
+      ai_use: this.policy.describe(),
+      // Every tool appears here, authorized or not, with the reason when
+      // withheld — a capability that is merely unauthorized is not missing.
+      tool_register: this.policy.register(),
+      preserved_business_capabilities: PRESERVED_BUSINESS_CAPABILITIES
     };
   }
 

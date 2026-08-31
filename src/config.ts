@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AuthorizedUseBasis, LicenseClass } from './compliance/ai-use.js';
+import type { AiAuthorizationBasis, DataLicenseUse } from './compliance/ai-use.js';
 import { validateAiUseDeclaration } from './compliance/ai-use.js';
 import { MlsError } from './errors.js';
 
@@ -50,8 +50,10 @@ const envSchema = z.object({
   // --- AI Use Addendum controls (see src/compliance/ai-use.ts) ---
   // Kill switch (§3.c). Defaults OFF: live MLS AI access must be switched on deliberately.
   MLS_AI_ACCESS_ENABLED: boolFromEnv,
-  MLS_AI_AUTHORIZED_USE_BASES: z.string().optional(),
-  MLS_AI_LICENSE_CLASSES: z.string().optional(),
+  // Open, extensible: MLS Grid data-use selections actually licensed (§2).
+  MLS_DATA_LICENSE_USES: z.string().optional(),
+  // Closed set (§1.e).
+  MLS_AI_AUTHORIZATION_BASES: z.string().optional(),
   MLS_AI_WRITTEN_APPROVAL_REFERENCE: z.string().optional(),
   MLS_AI_AUTHORIZED_TOOLS: z.string().optional(),
   MLS_PARTICIPANT_NAME: z.string().optional(),
@@ -82,8 +84,9 @@ export interface AppConfig {
   maxRecordsPerQuery: number;
   aiUse: {
     accessEnabled: boolean;
-    authorizedUseBases: AuthorizedUseBasis[];
-    licenseClasses: LicenseClass[];
+    dataLicenseUses: DataLicenseUse[];
+    aiAuthorizationBases: AiAuthorizationBasis[];
+    unknownDataUses: DataLicenseUse[];
     writtenApprovalReference: string | undefined;
     authorizedTools: string[];
     participantName: string | undefined;
@@ -114,8 +117,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     v?.trim() ? v.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
   const declaration = validateAiUseDeclaration(
-    csv(e.MLS_AI_AUTHORIZED_USE_BASES),
-    csv(e.MLS_AI_LICENSE_CLASSES),
+    csv(e.MLS_DATA_LICENSE_USES),
+    csv(e.MLS_AI_AUTHORIZATION_BASES),
     e.MLS_AI_WRITTEN_APPROVAL_REFERENCE
   );
   if (declaration.error) {
@@ -144,8 +147,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     maxRecordsPerQuery: e.MLS_MAX_RECORDS_PER_QUERY,
     aiUse: {
       accessEnabled: e.MLS_AI_ACCESS_ENABLED,
-      authorizedUseBases: declaration.bases,
-      licenseClasses: declaration.classes,
+      dataLicenseUses: declaration.dataUses,
+      aiAuthorizationBases: declaration.bases,
+      unknownDataUses: declaration.unknownDataUses,
       writtenApprovalReference: e.MLS_AI_WRITTEN_APPROVAL_REFERENCE?.trim() || undefined,
       authorizedTools: csv(e.MLS_AI_AUTHORIZED_TOOLS),
       participantName: e.MLS_PARTICIPANT_NAME?.trim() || undefined

@@ -140,7 +140,8 @@ describe('/health under a live provider with the kill switch off', () => {
     // The distinction that matters: configured live, but not permitted to retrieve.
     expect(res.body.live_mls_access).toBe(false);
     expect(res.body.ai_use.live_access_permitted).toBe(false);
-    expect(res.body.ai_use.authorized_tools).toEqual([]);
+    expect(res.body.ai_use.data_license_uses).toEqual([]);
+    expect(res.body.ai_use.ai_authorization_bases).toEqual([]);
   });
 
   it('exposes only get_capabilities over the protocol while gated', async () => {

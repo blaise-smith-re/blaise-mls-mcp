@@ -1,5 +1,18 @@
 # External activation gates
 
+**The unresolved question is AUTHORIZATION, not technical capability.**
+
+Every capability this business requires — buyer property search and matching, individual property
+research, comparable analysis, CMA evidence, market statistics, market snapshots, buyer/seller client
+preparation, listing presentations, and MLS-grounded guides and marketing — is **built, tested and
+ready**. None of it is missing, disabled by design, or awaiting further engineering. What each one
+awaits is the applicable Northstar/MLS Grid authorization.
+
+When that authorization exists, activation is a **configuration change**: declare the licensed
+data-license use(s), declare the AI authorization basis, switch on `MLS_AI_ACCESS_ENABLED`. No
+architectural rewrite, no redesign, no re-implementation. The gates below are commercial and legal,
+and they are the only thing standing between the current build and live operation.
+
 Blockers that live **outside this repository**. No amount of engineering clears them, and none is
 resolved today. Until they are, this server runs on fixture data only.
 
@@ -41,17 +54,28 @@ What the Addendum actually permits:
 Office is a license class, never an AI-use basis, and declaring Permitted Search/Response Use without
 an IDX or VOW class fails startup.
 
+**The architecture now separates the two questions.** Data-license use (which MLS Grid selections
+are licensed — IDX, VOW, Comparative Market Analysis, Customer Relationship Management, Real Estate
+Market Analytics, Participant Listings Use, or any future approved use) is modeled independently
+from AI authorization basis (the Addendum's closed set). A Back Office classification therefore
+constrains *which combinations can currently be declared* — it does not remove, cripple or redesign
+any capability.
+
 Still open, and Blaise's decision alone:
 
-- Which license class is actually executed (this decides whether Search/Response Use exists at all).
-- Whether internal buyer advisory / CMA work falls within Permitted Marketing Use, given §1.g's
-  "Participant's own listings or business" limit. See the Open Questions in the review document.
+- **Which MLS Grid data uses are actually selected** via the Data Interface. This determines which
+  tools activate, and it is a subscription/selection question, not an engineering one.
+- Which AI authorization basis applies to each intended use. §1.i ties Permitted Search/Response Use
+  to IDX or VOW; §1.g ties Permitted Marketing Use to marketing the Participant's own listings or
+  business. Where neither covers an intended use, §1.e/§2 allow express written approval from
+  MLS GRID or the applicable MLS — the `written_mls_approval` basis exists precisely for that route.
 - Whether this deployment is Vendor, Participant, or both (§3 makes them jointly and severally liable).
 - §4.a end-user agreement obligations, if output ever reaches clients.
 - **§6:** material updates take effect 15 days after notice, and continued use is acceptance. Any
   notice triggers a re-read and a re-run of the review.
 
-*Requires: Blaise. Acceptance of binding vendor terms, and the scope decisions above.*
+*Requires: Blaise. Acceptance of binding vendor terms, the data-use selections, and the basis
+decisions above. Nothing further is required of the software.*
 
 ## Gate 3 — Production API token
 
@@ -77,7 +101,7 @@ notification obligation is met.*
 
 ## Gate 5 — Permitted-use boundaries
 
-**Status: constrained pending Gates 1–2.**
+**Status: constrained pending Gates 1–2. A constraint on activation, not on capability.**
 
 Until the executed agreement and AI addendum are read, the conservative posture holds:
 
@@ -108,4 +132,8 @@ Gate 5 (permitted use) — constrains what the server may do at every stage
 
 Gates 1, 2 and 4 are business and legal decisions that are Blaise's alone. This build stops cleanly
 in front of them: the code is complete and tested on fixtures, and it will not attempt live access
-without an explicitly configured token.
+without an explicitly configured token and an authorized data-use/basis combination.
+
+To restate the point this document exists to make: **the software is not the blocker.** Each gate is
+an authorization to obtain, and each one, once obtained, is expressed to this server as
+configuration.

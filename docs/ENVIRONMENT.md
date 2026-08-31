@@ -35,18 +35,50 @@ build if one is ever committed.
 
 ## AI Use Addendum controls
 
-All default closed. See [`AI_USE_ADDENDUM_REVIEW.md`](AI_USE_ADDENDUM_REVIEW.md).
+Two independent axes, both defaulting closed. See
+[`AI_USE_ADDENDUM_REVIEW.md`](AI_USE_ADDENDUM_REVIEW.md) and the per-tool register in
+[`CAPABILITIES.md`](CAPABILITIES.md).
 
 | Variable | Default | Notes |
 |---|---|---|
-| `MLS_AI_ACCESS_ENABLED` | `false` | **Kill switch (§3.c).** While false, no MLS tool is registered and no MLS Grid request is made, even with a valid token |
-| `MLS_AI_AUTHORIZED_USE_BASES` | — | Comma-separated Authorized AI Use (§1.e): `permitted_marketing_use`, `permitted_search_response_use`, `written_authorization`. **`back_office` is rejected** — Back Office data access is not an AI-use basis |
-| `MLS_AI_LICENSE_CLASSES` | — | Executed class(es): `idx`, `vow`, `back_office`. **§1.i: `permitted_search_response_use` requires `idx` or `vow`** and startup fails without it |
-| `MLS_AI_WRITTEN_APPROVAL_REFERENCE` | — | Required when declaring `written_authorization` |
-| `MLS_AI_AUTHORIZED_TOOLS` | — | Per-tool allowlist (§2). **Empty authorizes nothing.** The server will not infer that a tool falls within a permitted use |
+| `MLS_AI_ACCESS_ENABLED` | `false` | **Kill switch (§3.c).** While false every MLS tool is withheld and no MLS Grid request is made, even with a valid token and a complete declaration |
+| `MLS_DATA_LICENSE_USES` | — | **Open, extensible.** Comma-separated MLS Grid data-use selections actually licensed and selected via the Data Interface (§2). Known: `idx`, `vow`, `comparative_market_analysis`, `customer_relationship_management`, `real_estate_market_analytics`, `participant_listings_use`, `back_office`. **Any future approved use is accepted** if it is a lowercase slug — no code change needed |
+| `MLS_AI_AUTHORIZATION_BASES` | — | **Closed set (§1.e).** Comma-separated: `permitted_search_response`, `permitted_marketing`, `written_mls_approval`. A data use given here is rejected — the axes are distinct |
+| `MLS_AI_WRITTEN_APPROVAL_REFERENCE` | — | Required whenever `written_mls_approval` is declared. That basis is **never inferred**: it also requires naming the covered tools in `MLS_AI_AUTHORIZED_TOOLS` |
+| `MLS_AI_AUTHORIZED_TOOLS` | — | Optional further narrowing. Can only restrict what the two axes permit, never widen it |
 | `MLS_PARTICIPANT_NAME` | — | Participant named in attribution (§3.d) |
 
-An invalid declaration **fails startup** rather than degrading to a permissive default.
+A tool activates only when the kill switch is on **and** one declared data use **and** one declared
+basis both cover it. Holding a data license is not AI permission; an AI basis without the underlying
+data use is not either.
+
+**§1.i:** `permitted_search_response` requires `idx` or `vow` among the declared data uses, and
+startup fails otherwise. An invalid declaration **fails startup** rather than degrading to a
+permissive default.
+
+### Activation examples
+
+```bash
+# CMA / market-analytics work under Permitted Marketing Use
+MLS_AI_ACCESS_ENABLED=true
+MLS_DATA_LICENSE_USES=comparative_market_analysis,real_estate_market_analytics
+MLS_AI_AUTHORIZATION_BASES=permitted_marketing
+# → activates get_comparables, market_stats, get_market_snapshot, get_listing,
+#   get_listing_history, lookup_member_or_office
+
+# Buyer search under an IDX license and Permitted Search/Response Use
+MLS_AI_ACCESS_ENABLED=true
+MLS_DATA_LICENSE_USES=idx
+MLS_AI_AUTHORIZATION_BASES=permitted_search_response
+# → activates search_listings, get_listing, get_open_houses, and more
+
+# A use expressly approved in writing (§1.e / §2)
+MLS_AI_ACCESS_ENABLED=true
+MLS_DATA_LICENSE_USES=participant_listings_use
+MLS_AI_AUTHORIZATION_BASES=written_mls_approval
+MLS_AI_WRITTEN_APPROVAL_REFERENCE=<approval identifier>
+MLS_AI_AUTHORIZED_TOOLS=get_listing,market_stats   # required: never inferred
+```
 
 ## Claude → MCP authentication boundary
 
@@ -76,10 +108,9 @@ MLSGRID_TOKEN=<licensed token>
 MLSGRID_ORIGINATING_SYSTEM=<confirmed value>
 MCP_AUTH_TOKEN=<generated secret>
 NODE_ENV=production
-# Without all four of these, the live provider serves no tools at all:
+# Without all three of these, the live provider serves no MLS tools at all:
 MLS_AI_ACCESS_ENABLED=true
-MLS_AI_AUTHORIZED_USE_BASES=<basis the executed Addendum authorizes>
-MLS_AI_LICENSE_CLASSES=<executed class>
-MLS_AI_AUTHORIZED_TOOLS=<tools affirmatively determined to be within that basis>
+MLS_DATA_LICENSE_USES=<selections actually licensed via the Data Interface>
+MLS_AI_AUTHORIZATION_BASES=<basis the applicable authorization provides>
 MLS_PARTICIPANT_NAME=Buy Sell Home Team | RE/MAX Results
 ```

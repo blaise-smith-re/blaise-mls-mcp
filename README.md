@@ -21,7 +21,7 @@ RESO Web API.
 | Live MLS Grid token | **Not held.** No live call has ever been made from this codebase |
 | AI Use Addendum | **Reviewed 2026-08-30 and technically enforced.** Acceptance and scope decisions remain open — [`docs/AI_USE_ADDENDUM_REVIEW.md`](docs/AI_USE_ADDENDUM_REVIEW.md) |
 | Data license / subscription | **Not executed.** See [`docs/EXTERNAL_GATES.md`](docs/EXTERNAL_GATES.md) |
-| Live AI access | **Kill switch OFF by default.** MLS tools are unavailable until access, a use basis, and a per-tool allowlist are all configured |
+| Live AI access | **Kill switch OFF by default.** MLS tools are withheld — not removed — until a licensed data use and an AI basis are declared |
 | Production certification | **Not granted.** Requires the reconciliation in [`docs/CERTIFICATION_RUNBOOK.md`](docs/CERTIFICATION_RUNBOOK.md) |
 
 Everything the live adapter "knows" about MLS Grid is derived from public documentation and is
@@ -35,32 +35,51 @@ does not replace or compete with the existing workflow.
 
 ## AI Use Addendum enforcement
 
-The Addendum permits MLS Grid Data with AI Tools **solely** for Permitted Search/Response Use and
-Permitted Marketing Use; all other AI use requires written MLS approval. Two constraints drive this
-implementation:
+**Every capability is implemented and stays implemented.** Authorization controls whether a tool may
+run against live MLS Grid Data — it never removes the capability. Activation is a configuration
+change, not a rewrite.
 
-- **§1.i ties Permitted Search/Response Use to IDX or VOW licenses.** A **Back Office license does
-  not carry it**, and declaring it without an IDX/VOW class fails startup.
-- **§1.g limits Permitted Marketing Use** to marketing *Blaise's own listings or business*.
+Two independent axes, both defaulting closed:
 
-**Back Office access alone is not blanket AI permission.** Whether internal buyer advisory / CMA work
-falls within Permitted Marketing Use is an open licensing question — see the Open Questions in the
-review. The server refuses to decide it: every tool must be individually allowlisted.
+**1. Data-license use** (`MLS_DATA_LICENSE_USES`) — which MLS Grid selections are actually licensed
+and selected via the Data Interface (§2). **Open and extensible**: IDX, VOW, Comparative Market
+Analysis, Customer Relationship Management, Real Estate Market Analytics, Participant Listings Use,
+Back Office, **or any future approved use** — no code change required.
 
-Controls, all defaulting closed:
+**2. AI authorization basis** (`MLS_AI_AUTHORIZATION_BASES`) — the Addendum's **closed** set (§1.e):
+`permitted_search_response`, `permitted_marketing`, `written_mls_approval`.
+
+A tool runs only when the kill switch is on **and both axes cover it**. Holding a data license is not
+AI permission; an AI basis without the underlying data use is not either. `written_mls_approval`
+(§1.e/§2 express written approval from MLS GRID or the applicable MLS) requires a written reference
+**and** an explicit tool listing — it is never inferred.
 
 | Control | Behavior |
 |---|---|
-| `MLS_AI_ACCESS_ENABLED` | Kill switch (§3.c), **default OFF**. While off, MLS tools are absent from `tools/list` and no MLS Grid request is made |
-| `MLS_AI_AUTHORIZED_USE_BASES` | Declared Authorized AI Use (§1.e). Back Office is not accepted as a basis |
-| `MLS_AI_LICENSE_CLASSES` | Executed license class; gates §1.i |
-| `MLS_AI_AUTHORIZED_TOOLS` | Per-tool allowlist (§2). Empty authorizes nothing |
+| `MLS_AI_ACCESS_ENABLED` | Kill switch (§3.c), **default OFF** |
+| `MLS_DATA_LICENSE_USES` | Axis 1 — open set of licensed selections |
+| `MLS_AI_AUTHORIZATION_BASES` | Axis 2 — closed Addendum set |
+| `MLS_AI_AUTHORIZED_TOOLS` | Optional narrowing; can only restrict, never widen |
+
+Constraints the Addendum's text imposes: **§1.i** ties Permitted Search/Response Use to IDX or VOW
+licenses; **§1.g** ties Permitted Marketing Use to marketing the Participant's own listings or
+business. Where neither covers an intended use, §1.e/§2 provide the written-approval route.
 
 **Nothing is retained** (§3.a, §1.d): no cache, database, file store, vector index, embedding,
 retrieval index, knowledge graph, or training path exists anywhere in the codebase. Identical
-repeated queries re-fetch. MLS content must never be placed in Claude project knowledge or memory.
-**Every MLS-derived result carries attribution** naming the Participant, originating MLS and MLS GRID
-(§3.d).
+repeated queries re-fetch. **Every MLS-derived result carries attribution** naming the Participant,
+originating MLS and MLS GRID (§3.d).
+
+### Business capabilities preserved for activation
+
+Buyer property search and matching · individual property research · comparable analysis · CMA
+evidence · market statistics · market snapshots · buyer/seller client preparation · listing
+presentations · MLS-grounded guides and marketing.
+
+All are built and tested today. This does **not** assert that the Addendum currently authorizes them
+— see [`docs/CAPABILITIES.md`](docs/CAPABILITIES.md) for the per-tool register and
+[`docs/EXTERNAL_GATES.md`](docs/EXTERNAL_GATES.md) for what remains an authorization question rather
+than a technical one.
 
 ## What it will not do
 

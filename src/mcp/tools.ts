@@ -88,16 +88,15 @@ const COMPLETENESS_NOTE =
 /**
  * Build the tool inventory.
  *
- * `get_capabilities` is always present: a client must be able to discover WHY
- * the MLS tools are unavailable. Every tool that can reach MLS Grid Data is
- * filtered out unless the AI-use policy authorizes it, so an unauthorized tool
- * is not merely blocked at call time — it never appears in tools/list.
+ * All nine tools stay implemented at all times. A tool that the current
+ * authorization does not cover is withheld from tools/list rather than removed
+ * from the codebase, and `get_capabilities` still reports it with the reason —
+ * an unauthorized capability is not a missing capability, and activating it
+ * later is a configuration change, not a rewrite.
  */
 export function buildTools(service: MlsService): ToolDefinition[] {
   const policy = service.aiUsePolicy;
-  return buildAllTools(service).filter(
-    (tool) => tool.name === 'get_capabilities' || policy.evaluateTool(tool.name).allowed
-  );
+  return buildAllTools(service).filter((tool) => policy.evaluateTool(tool.name).allowed);
 }
 
 function buildAllTools(service: MlsService): ToolDefinition[] {

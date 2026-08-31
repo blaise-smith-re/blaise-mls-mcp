@@ -26,30 +26,78 @@ raises `UNSUPPORTED_CAPABILITY` rather than issuing a query it cannot support. W
 
 ² The fixture dataset carries no media; the code path exists and is exercised by mapping tests.
 
-## AI-use gating (MLS Grid AI Use Addendum)
+## Authorization model: two independent axes
 
-Live tools are **unavailable by default**. Availability requires all three of: the live provider
-configured, the AI-access kill switch on, and the tool individually allowlisted.
+**Every capability below is fully implemented and stays that way.** What varies is whether the
+current authorization permits running it against live MLS Grid Data. A withheld tool is
+*unauthorized*, not *absent* — activating it later is a configuration change, not a rewrite.
+
+Authorization has two independent axes, and a tool runs only when **both** are satisfied and the
+kill switch is on:
+
+**1. Data-license use** (`MLS_DATA_LICENSE_USES`) — which MLS Grid data-use selections are actually
+licensed and selected via the Data Interface (§2). **Open and extensible**: IDX, VOW, Comparative
+Market Analysis, Customer Relationship Management, Real Estate Market Analytics, Participant
+Listings Use, Back Office, **or any future approved use** — a newly approved selection needs no code
+change, only a declaration.
+
+**2. AI authorization basis** (`MLS_AI_AUTHORIZATION_BASES`) — the Addendum's **closed** set (§1.e):
+`permitted_search_response`, `permitted_marketing`, `written_mls_approval`.
+
+Holding a data license is not AI permission, and an AI basis without the underlying data use is not
+either. Neither axis alone authorizes anything.
 
 | Condition | Effect |
 |---|---|
-| `MLS_AI_ACCESS_ENABLED` unset/false | No MLS tool is registered; no MLS Grid request is made (§3.c) |
-| No `MLS_AI_AUTHORIZED_USE_BASES` | Same — Authorized AI Use is undeclared (§1.e) |
-| Tool absent from `MLS_AI_AUTHORIZED_TOOLS` | That tool is not registered and is refused at the service layer (§2) |
-| `permitted_search_response_use` without `idx`/`vow` | **Startup fails** — §1.i ties that use to IDX or VOW licenses |
-| `back_office` given as an AI-use basis | **Startup fails** — Back Office is a license class, not an AI-use basis |
+| `MLS_AI_ACCESS_ENABLED` unset/false | Every MLS tool withheld; no MLS Grid request made (§3.c) |
+| No `MLS_AI_AUTHORIZATION_BASES` | Withheld — `NO_AI_AUTHORIZATION_BASIS` |
+| No `MLS_DATA_LICENSE_USES` | Withheld — `NO_DATA_LICENSE_USE` |
+| Tool's data use not among those declared | Withheld — `DATA_USE_NOT_LICENSED` |
+| Tool's basis not among those declared | Withheld — `BASIS_NOT_DECLARED` |
+| `permitted_search_response` without `idx`/`vow` | **Startup fails** — §1.i ties that use to IDX or VOW |
+| A data use given as an AI basis | **Startup fails** — the axes are distinct |
+| `written_mls_approval` without a reference and explicit tool listing | Withheld — never inferred |
 
-**Back Office access alone is not blanket AI permission.** Under a Back Office license the only
-declarable basis is Permitted Marketing Use, which §1.g limits to marketing *Blaise's own listings or
-business*. Whether comparables and market statistics over other participants' listings fall inside
-that limit is an open licensing question — see the Open Questions in
-[`AI_USE_ADDENDUM_REVIEW.md`](AI_USE_ADDENDUM_REVIEW.md).
+`MLS_AI_AUTHORIZED_TOOLS` is an optional further narrowing. It can only restrict what the two axes
+already permit, never widen it.
+
+## Per-tool capability register
+
+For each tool: technical capability, the data uses that could underpin it, the AI bases it could run
+under, and — at runtime — its current authorization state and the reason when withheld.
+`get_capabilities` returns this live, including every withheld tool.
+
+| Tool | Technical capability | Data-use requirement (any of) | Possible AI basis | Business capabilities served |
+|---|---|---|---|---|
+| `get_capabilities` | Reports capabilities, limitations and authorization state | *(none — no MLS data)* | *(n/a)* | Operational transparency |
+| `get_listing` | Exact lookup by MLS number/key or address, with provenance | idx, vow, comparative_market_analysis, customer_relationship_management, real_estate_market_analytics, participant_listings_use | search/response, marketing, written | Individual property research · Buyer/seller prep · Listing presentations |
+| `search_listings` | Deterministic filtered search with completeness accounting | idx, vow, comparative_market_analysis, customer_relationship_management, real_estate_market_analytics, participant_listings_use | search/response, marketing, written | **Buyer property search and matching** · Property research · Buyer prep |
+| `get_listing_history` | History-adjacent fields plus the capability limitation | *same as `get_listing`* | search/response, marketing, written | Property research · Seller prep · Listing presentations |
+| `get_comparables` | Retrieves and ranks comparable candidates with reasoning | comparative_market_analysis, real_estate_market_analytics, idx, vow | search/response, marketing, written | **Comparable analysis · CMA evidence** · Seller prep · Listing presentations |
+| `market_stats` | Computes market metrics with stated methodology | comparative_market_analysis, real_estate_market_analytics, idx, vow | search/response, marketing, written | **Market statistics** · CMA evidence · MLS-grounded guides · Listing presentations |
+| `get_market_snapshot` | Inventory/pending/closed composition from bounded queries | comparative_market_analysis, real_estate_market_analytics, idx, vow | search/response, marketing, written | **Market snapshots** · Market statistics · MLS-grounded guides |
+| `lookup_member_or_office` | Member/office directory lookup | *same as `get_listing`* | search/response, marketing, written | Property research · Buyer/seller prep |
+| `get_open_houses` | Scheduled open houses, optionally scoped | idx, vow, participant_listings_use, customer_relationship_management | search/response, marketing, written | Buyer search and matching · Buyer prep · Listing presentations |
+
+> The data-use and basis columns are a **configuration scaffold, not a legal determination**. They
+> record which declarations *would* activate each tool. They do **not** assert that the executed
+> Addendum authorizes any of them today. Confirming which MLS Grid selections actually cover which
+> tool is Blaise's decision with counsel; the operator declares the result through configuration.
+
+### Preserved business capabilities
+
+These remain architecturally supported and activate by configuration once the applicable
+Northstar/MLS Grid authorization exists:
+
+buyer property search and matching · individual property research · comparable analysis · CMA
+evidence · market statistics · market snapshots · buyer/seller client preparation · listing
+presentations · MLS-grounded guides and marketing.
 
 Structurally prohibited regardless of configuration (§1.d, §3): embeddings, vector indexes,
 retrieval indices, knowledge graphs, fine-tuning, training datasets, persistent retrieval stores,
 any representation persisting beyond a single session, caching beyond an individual query, storage in
 Claude project knowledge or memory, and rendering data unattributable to the Participant, MLS or
-MLS GRID. `get_capabilities` returns the live posture, including why a tool is withheld.
+MLS GRID.
 
 ## Standing limitations
 

@@ -17,10 +17,10 @@ const BASE = 'https://api.mlsgrid.com/v2';
 const OPEN_POLICY = new AiUsePolicy({
   provider: 'mlsgrid',
   aiAccessEnabled: true,
-  authorizedUseBases: ['permitted_marketing_use'],
-  licenseClasses: ['back_office'],
+  dataLicenseUses: ['comparative_market_analysis'],
+  aiAuthorizationBases: ['permitted_marketing'],
   writtenApprovalReference: undefined,
-  authorizedTools: ['get_listing', 'search_listings']
+  authorizedTools: []
 });
 
 function record(n: number, price: number): Record<string, unknown> {

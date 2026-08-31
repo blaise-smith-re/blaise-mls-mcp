@@ -26,27 +26,32 @@ carry Permitted Search/Response Use.
 listings or business**", and excluding "any images, videos, or other copyrighted content not owned
 by Participant."
 
-**Consequence for this server:** under a Back Office license alone, the only available basis is
-Permitted Marketing Use, and that basis reaches only work marketing Blaise's own listings or
-business. Several tools here — comparables and market statistics over *other* participants' listings
-— do not obviously sit inside that boundary when used for internal buyer advisory or CMA work rather
-than to produce marketing content. **This is the gap that most needs Blaise's decision**, and it is
-why the code refuses to map tools to bases on its own.
+**Consequence for this server:** a Back Office selection alone does not carry Permitted
+Search/Response Use, and Permitted Marketing Use reaches only work marketing Blaise's own listings or
+business. Whether comparables and market statistics over *other* participants' listings sit inside
+that boundary — when used for internal buyer advisory or CMA work rather than to produce marketing
+content — **is the question that most needs Blaise's decision**.
 
 Notably, §1.g's definition of Marketing Content *does* expressly include "predictive market
 analytics", "prospective listing intelligence for properties not yet on the market", and "listing
 presentation materials" — so CMA-shaped outputs can qualify **when created solely to market Blaise's
 own listings or business**. The determining factor in the text is purpose, not output shape, and
-purpose is not something this server can verify. Hence the per-tool allowlist.
+purpose is not something software can verify.
+
+**This is an authorization question, not a capability question.** MLS Grid also offers data-use
+selections beyond Back Office — Comparative Market Analysis, Real Estate Market Analytics, Customer
+Relationship Management, Participant Listings Use, IDX and VOW — and §1.e/§2 provide a written-approval
+route for any other AI use. So the resolution path is to obtain the applicable selection or approval,
+not to remove the capability. The architecture below reflects that.
 
 ## Clause-to-control mapping
 
 | Clause | Requirement | Control | Test |
 |---|---|---|---|
 | §1.d | No AI Training: no train/fine-tune/align/embed/distill, RLHF, validation, testing, retraining, **vector embeddings, retrieval indices, knowledge graphs**, or similar representations **persisting beyond a single user session**; no use enabling output derived from the data **without contemporaneous access** | No such code exists. `PROHIBITED_USES` documents it; the server holds no store of any kind and re-fetches on every query | `no-persistence.test.ts` — no persistence/vector imports, no such dependency, no disk writes |
-| §1.e | Authorized AI Use = Permitted Search/Response Use, Permitted Marketing Use, or written authorization from MLS GRID or an MLS | `AUTHORIZED_USE_BASES` is a closed enum; an undeclared basis cannot be configured | `ai-use.test.ts` — Back Office rejected as a basis |
-| §1.i | Permitted Search/Response Use requires **IDX or VOW licenses** | `validateAiUseDeclaration` refuses that basis unless `idx` or `vow` is declared; startup fails | `ai-use.test.ts` — refuses without IDX/VOW, accepts with |
-| §2 | Use limited to "usage options selected via the Data Interface" | Operator declares `MLS_AI_LICENSE_CLASSES` and `MLS_AI_AUTHORIZED_TOOLS` to mirror what is actually selected | `ai-use.test.ts` — empty allowlist authorizes nothing |
+| §1.e | Authorized AI Use = Permitted Search/Response Use, Permitted Marketing Use, or written authorization from MLS GRID or an MLS | `AI_AUTHORIZATION_BASES` is a closed enum on its own axis; a data-license use declared here is rejected and redirected to the data axis. `written_mls_approval` requires a reference and an explicit tool listing | `ai-use.test.ts` — closed basis set; written approval never inferred |
+| §1.i | Permitted Search/Response Use requires **IDX or VOW licenses** | `validateAiUseDeclaration` refuses that basis unless `idx` or `vow` is among the declared data uses; startup fails | `ai-use.test.ts` — refuses without IDX/VOW, accepts with |
+| §2 | Use limited to "usage options selected via the Data Interface" | `MLS_DATA_LICENSE_USES` declares the actual selections on an open, extensible axis; each tool requires one that underpins it. `MLS_AI_AUTHORIZED_TOOLS` narrows further but never widens | `ai-use.test.ts` — both axes required; future uses accepted |
 | §3.a | No caching, storing, archiving or retention beyond an individual query | No cache anywhere; `Cache-Control: no-store` on every request; identical repeated queries re-fetch; certification report redacts MLS values by default | `no-persistence.test.ts` — re-fetch proven by changing upstream data mid-test |
 | §3.b | No AI Training without prior express authorization | Structurally absent, as §1.d above | `no-persistence.test.ts` |
 | §3.c | Vendor **must retain the ability to restrict, suspend, and terminate** an AI Tool's access at any time | `MLS_AI_ACCESS_ENABLED` kill switch, **default OFF**. When off, MLS tools are absent from `tools/list` and the service refuses before any HTTP call | `ai-use.test.ts` — no fetch occurs while off |
@@ -56,15 +61,38 @@ purpose is not something this server can verify. Hence the per-tool allowlist.
 | §4.b | On revocation, MLS Grid Data must be destroyed | Nothing is retained to destroy. The one exception — a certification report generated with `--include-mls-values` — carries a destroy-after-reconciliation banner | Documented in `CERTIFICATION_RUNBOOK.md` |
 | §6 | Material updates effective 15 days after notice | Recorded as a standing re-review obligation | `EXTERNAL_GATES.md` |
 
+## Architecture: authorization is separate from capability
+
+The controls model **data-license use** and **AI authorization basis** as independent axes, because
+the Addendum treats them independently: §2 limits use to "those usage options selected via the Data
+Interface" (the data axis), while §1.e defines the closed set of Authorized AI Use (the AI axis).
+Collapsing them would have made a Back Office classification look like a capability limit, which it
+is not — it is a limit on which combinations can currently be declared.
+
+Consequently **no capability was removed, crippled or redesigned**. All nine read-only tools remain
+implemented and tested. A tool the current declaration does not cover is *withheld*, reported in the
+capability register with the reason, and activates by configuration once the applicable authorization
+exists.
+
+The data axis is deliberately **open**: MLS Grid may approve new data uses at any time, and a newly
+approved selection is declarable immediately without a code change. The AI axis is deliberately
+**closed**, mirroring §1.e, with `written_mls_approval` as the §1.e/§2 route for a use expressly
+approved in writing — never inferred, always requiring a reference and an explicit tool listing.
+
 ## What this build changed in response
 
+0. **Two-axis authorization model**: data-license use (open) separated from AI authorization basis
+   (closed), so licensing classification never dictates which capabilities exist.
 1. **Kill switch** (`MLS_AI_ACCESS_ENABLED`), default OFF for the live provider — §3.c.
 2. **Fail-closed default**: an `MlsService` constructed without an explicit policy is treated as a
    fully-closed live policy, never as permission.
-3. **Per-tool authorization** (`MLS_AI_AUTHORIZED_TOOLS`): tools are filtered out of `tools/list`
-   entirely, and re-checked at the service layer so bypassing MCP does not bypass the gate.
+3. **Per-tool authorization matrix**: each tool declares which data uses could underpin it and which
+   bases could cover it. Withheld tools are filtered out of `tools/list` and re-checked at the
+   service layer, so bypassing MCP does not bypass the gate. `MLS_AI_AUTHORIZED_TOOLS` narrows
+   further but can never widen.
 4. **IDX/VOW enforcement** for Permitted Search/Response Use — §1.i.
-5. **Back Office is not a basis**: it is a license class, never an AI-use basis.
+5. **Back Office is a data-license use, not an AI basis.** Declaring it on the AI axis fails startup
+   with a message pointing at the correct axis.
 6. **Attribution on every MLS-derived result**, naming Participant, MLS and MLS GRID — §3.d.
 7. **`Cache-Control: no-store`** on every outbound request, plus tests proving no in-process cache.
 8. **Certification report redacts MLS content by default**; `--include-mls-values` is opt-in and
